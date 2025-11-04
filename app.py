@@ -1,19 +1,17 @@
 from flask import Flask, request, jsonify
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from time import sleep
-import re
+import re, os
 
 app = Flask(__name__)
 
 @app.route("/scrape", methods=["POST"])
 def scrape():
-    """
-    Endpoint que recibe una URL y devuelve título, stock y precios según existan o no variantes.
-    """
     data = request.get_json()
     url = data.get("url")
 
@@ -23,13 +21,17 @@ def scrape():
     try:
         # Configuración del navegador
         opts = Options()
-        opts.add_argument("--headless")
+        opts.add_argument("--headless=new")
         opts.add_argument("--no-sandbox")
         opts.add_argument("--disable-dev-shm-usage")
-        opts.add_argument("user-agent=Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                          "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36")
+        opts.add_argument("--disable-gpu")
+        opts.add_argument("--disable-software-rasterizer")
+        opts.add_argument("--disable-extensions")
+        opts.add_argument("--remote-debugging-port=9222")
+        opts.binary_location = "/usr/bin/google-chrome"
 
-        driver = webdriver.Chrome(options=opts)
+        service = Service("/usr/local/bin/chromedriver")
+        driver = webdriver.Chrome(service=service, options=opts)
         driver.set_window_size(1920, 1080)
 
         driver.get(url)
@@ -55,46 +57,31 @@ def scrape():
 
         variantes = []
 
-        # Caso 1: Existen swatches (variantes)
+        # Caso 1: Existen variantes
         try:
             td_element = driver.find_element(By.CSS_SELECTOR, "td.value.cell.with-swatches")
             divs = td_element.find_elements(By.CSS_SELECTOR, "div.wd-swatch.wd-text")
 
-            if len(divs) > 0:
-                print(f"Existen {len(divs)} variantes")
-                for div in divs:
-                    peso = div.text.strip().replace(" ", "")
-                    driver.execute_script("arguments[0].scrollIntoView(true);", div)
-                    div.click()
-                    sleep(2)
-                    try:
-                        price_elem = driver.find_element(By.CSS_SELECTOR, "p.price span.woocommerce-Price-amount.amount bdi")
-                        price = price_elem.text.strip()
-                    except:
-                        price = "No encontrado"
-                    variantes.append({"peso": peso, "precio": price})
-            else:
-                print("No existen elementos dentro del td")
-
-        # Caso 2: No existen variantes (tomar peso del título)
+            for div in divs:
+                peso = div.text.strip().replace(" ", "")
+                driver.execute_script("arguments[0].scrollIntoView(true);", div)
+                div.click()
+                sleep(2)
+                try:
+                    price_elem = driver.find_element(By.CSS_SELECTOR, "p.price span.woocommerce-Price-amount.amount bdi")
+                    price = price_elem.text.strip()
+                except:
+                    price = "No encontrado"
+                variantes.append({"peso": peso, "precio": price})
         except:
-            print("No existen elementos (td con swatches no encontrado)")
+            # Caso 2: No existen variantes
             try:
                 price_elem = driver.find_element(By.CSS_SELECTOR, "p.price span.woocommerce-Price-amount.amount bdi")
                 price = price_elem.text.strip()
-
-                # 🧠 Limpiar el título eliminando "(exo)" u otros paréntesis
                 clean_title = re.sub(r"\(.*?\)", "", product_title).strip()
-
-                # Extraer las últimas dos palabras limpias
                 title_parts = clean_title.split()
-                if len(title_parts) >= 2:
-                    last_two = "".join(title_parts[-2:])  # Ej: ['1', 'kg'] → '1kg'
-                else:
-                    last_two = "N/A"
-
+                last_two = "".join(title_parts[-2:]) if len(title_parts) >= 2 else "N/A"
                 variantes.append({"peso": last_two, "precio": price})
-
             except:
                 variantes.append({"peso": "N/A", "precio": "No encontrado"})
 
@@ -112,6 +99,10 @@ def scrape():
         print("Error:", e)
         return jsonify({"url": url, "error": str(e), "status": "failed"}), 500
 
+
+@app.route("/")
+def home():
+    return "✅ Flask + Selenium está funcionando correctamente en EasyPanel."
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))

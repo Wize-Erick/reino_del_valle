@@ -1,30 +1,41 @@
 FROM python:3.11-slim
 
-# Evitar preguntas interactivas en la instalación
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Instalar Chromium y dependencias mínimas
+# Instalar dependencias del sistema necesarias para Chrome
 RUN apt-get update && apt-get install -y \
-    chromium chromium-driver \
-    libnss3 libgconf-2-4 libxi6 libgbm1 libasound2 \
+    wget unzip curl gnupg ca-certificates fonts-liberation \
+    libnss3 libxss1 libgconf-2-4 libxi6 libgbm1 libasound2 libatk-bridge2.0-0 libxshmfence1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Establecer variables de entorno para Selenium
-ENV CHROME_BIN=/usr/bin/chromium
-ENV CHROMEDRIVER_PATH=/usr/bin/chromedriver
+# Instalar Chromium manualmente
+RUN wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb \
+    && apt-get install -y ./google-chrome-stable_current_amd64.deb || apt-get -f install -y \
+    && rm google-chrome-stable_current_amd64.deb
 
-# Establecer directorio de trabajo
+# Instalar ChromeDriver compatible con la versión instalada
+RUN CHROME_VERSION=$(google-chrome --version | grep -oP '\d+\.\d+\.\d+\.\d+') && \
+    DRIVER_VERSION=$(curl -s "https://googlechromelabs.github.io/chrome-for-testing/LATEST_RELEASE") && \
+    wget -q "https://storage.googleapis.com/chrome-for-testing-public/${DRIVER_VERSION}/linux64/chromedriver-linux64.zip" -O /tmp/chromedriver.zip && \
+    unzip /tmp/chromedriver.zip -d /usr/local/bin/ && \
+    mv /usr/local/bin/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver && \
+    chmod +x /usr/local/bin/chromedriver && \
+    rm -rf /tmp/*
+
+# Variables de entorno para Selenium
+ENV CHROME_BIN=/usr/bin/google-chrome
+ENV CHROMEDRIVER_PATH=/usr/local/bin/chromedriver
+
 WORKDIR /app
 
-# Instalar dependencias de Python
+# Instalar dependencias Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copiar el código de la aplicación
+# Copiar código fuente
 COPY . .
 
-# Exponer puerto
 EXPOSE 5000
 
-# Ejecutar con Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
+# Ejecutar el servidor
+CMD ["gunico]()
